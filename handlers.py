@@ -35,7 +35,8 @@ def lesson_kb(lid: int):
     return b.as_markup()
 
 
-@router.message(CommandStart() | Command("menu"))
+@router.message(CommandStart())
+@router.message(Command("menu"))
 async def cmd_start(m: Message):
     await m.answer(START_TEXT, reply_markup=menu_kb())
 
