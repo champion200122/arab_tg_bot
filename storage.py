@@ -1,46 +1,43 @@
 import os
-import sqlite3
-import threading
+import asyncpg
 
-DB_PATH = os.environ.get("DB_PATH", "data.db")
-_lock = threading.Lock()
+DATABASE_URL = os.environ["DATABASE_URL"]
+
+pool = None
 
 
-def _conn():
-    c = sqlite3.connect(DB_PATH)
-    c.execute(
+async def init_db():
+    global pool
+    pool = await asyncpg.create_pool(DATABASE_URL)
+    await pool.execute(
         """CREATE TABLE IF NOT EXISTS progress(
-            user_id INTEGER NOT NULL,
+            user_id BIGINT NOT NULL,
             word_key TEXT NOT NULL,
-            correct INTEGER DEFAULT 0,
-            wrong INTEGER DEFAULT 0,
+            correct INT DEFAULT 0,
+            wrong INT DEFAULT 0,
             PRIMARY KEY(user_id, word_key))"""
     )
-    return c
 
 
-def record(user_id: int, word_key: str, ok: int):
-    with _lock, _conn() as c:
-        row = c.execute(
-            "SELECT correct, wrong FROM progress WHERE user_id=? AND word_key=?",
-            (user_id, word_key),
-        ).fetchone()
-        if row:
-            cr, wr = row
-            c.execute(
-                "UPDATE progress SET correct=?, wrong=? WHERE user_id=? AND word_key=?",
-                (cr + ok, wr + (1 - ok), user_id, word_key),
-            )
-        else:
-            c.execute(
-                "INSERT INTO progress(user_id, word_key, correct, wrong) VALUES(?,?,?,?)",
-                (user_id, word_key, ok, 1 - ok),
-            )
+async def record(user_id: int, word_key: str, ok: int):
+    row = await pool.fetchrow(
+        "SELECT correct, wrong FROM progress WHERE user_id=$1 AND word_key=$2",
+        user_id, word_key
+    )
+    if row:
+        await pool.execute(
+            "UPDATE progress SET correct=$1, wrong=$2 WHERE user_id=$3 AND word_key=$4",
+            row["correct"] + ok, row["wrong"] + (1 - ok), user_id, word_key
+        )
+    else:
+        await pool.execute(
+            "INSERT INTO progress(user_id, word_key, correct, wrong) VALUES($1,$2,$3,$4)",
+            user_id, word_key, ok, 1 - ok
+        )
 
 
-def stats(user_id: int):
-    with _lock, _conn() as c:
-        return c.execute(
-            "SELECT word_key, correct, wrong FROM progress WHERE user_id=?",
-            (user_id,),
-        ).fetchall()
+async def stats(user_id: int):
+    return await pool.fetch(
+        "SELECT word_key, correct, wrong FROM progress WHERE user_id=$1",
+        user_id
+    )
