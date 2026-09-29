@@ -24,13 +24,24 @@ async def health():
     return {"status": "ok"}
 
 
+missing = [v for v in ("BOT_TOKEN", "WEBHOOK_URL", "WEBHOOK_SECRET")
+           if not os.environ.get(v)]
+if missing:
+    raise SystemExit(f"Не заданы переменные окружения: {missing}")
+
+
 @app.on_event("startup")
 async def startup():
-    await bot.set_webhook(
-        url=WEBHOOK_URL,
-        secret_token=WEBHOOK_SECRET,
-    )
+    try:
+        await bot.set_webhook(url=WEBHOOK_URL, secret_token=WEBHOOK_SECRET)
+        print("WEBHOOK OK:", WEBHOOK_URL)
+    except Exception as e:
+        print("WEBHOOK SETUP ERROR:", repr(e))
 
+
+@app.on_event("shutdown")
+async def shutdown():
+    await bot.session.close()
 
 @app.post("/webhook")
 async def webhook(request: Request):
