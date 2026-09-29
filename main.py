@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
-
+from handlers import router as bot_router
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
@@ -13,11 +13,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 app = FastAPI()
 
-
-@dp.message()
-async def any_message(message):
-    await message.answer("Привет! Это заготовка бота для изучения арабского.")
-
+dp.include_router(bot_router)
 
 @app.get("/health")
 async def health():
