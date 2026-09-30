@@ -98,25 +98,33 @@ async def cards(cq: CallbackQuery):
 @router.callback_query(F.data.startswith("reveal:"))
 async def reveal(cq: CallbackQuery):
     _, lid, i = map(int, cq.data.split(":"))
-    w = lesson_by_id(lid)["words"][i]
+    l = lesson_by_id(lid)
+    w = l["words"][i]
     b = InlineKeyboardBuilder()
     b.button(text="✅ Знаю", callback_data=f"know:{lid}:{i}:1")
     b.button(text="🔁 Учить", callback_data=f"know:{lid}:{i}:0")
-    b.button(text="➡️ Далее", callback_data=f"cards:{lid}:{i + 1}" if i + 1 < len(lesson_by_id(lid)["words"]) else f"lesson:{lid}")
+    if i + 1 < len(l["words"]):
+        b.button(text="➡️ Далее", callback_data=f"cards:{lid}:{i + 1}")
+    else:
+        b.button(text="➡️ Далее", callback_data=f"lesson:{lid}")
     b.adjust(2, 1)
-    await cq.message.edit_text(f"{w['ar']}\n{w['tr']}\n{w['ru']}", reply_markup=b.as_markup())
+    await cq.message.edit_text(
+        f"{w['ar']}\n{w['tr']}\n{w['ru']}", reply_markup=b.as_markup()
+    )
     await cq.answer()
 
 
 @router.callback_query(F.data.startswith("know:"))
 async def know(cq: CallbackQuery):
     _, lid, i, ok = map(int, cq.data.split(":"))
-    record(cq.from_user.id, f"{lid}:{i}", ok)
+    await record(cq.from_user.id, f"{lid}:{i}", ok)
     l = lesson_by_id(lid)
     if i + 1 < len(l["words"]):
         await show_card(cq, lid, i + 1)
     else:
-        await cq.message.edit_text("Карточки урока пройдены 🎉", reply_markup=lesson_kb(lid))
+        await cq.message.edit_text(
+            "Карточки урока пройдены 🎉", reply_markup=lesson_kb(lid)
+        )
     await cq.answer("Записал")
 
 
@@ -124,7 +132,7 @@ def quiz_question(lid: int, i: int):
     l = lesson_by_id(lid)
     w = l["words"][i]
     others = [x["ru"] for x in l["words"] if x["ru"] != w["ru"]]
-    rnd = random.Random(f"{lid}:{i}")  # детерминированно: без состояния
+    rnd = random.Random(f"{lid}:{i}")  # детерминированно, без состояния
     rnd.shuffle(others)
     opts = [w["ru"]] + others[:3]
     rnd.shuffle(opts)
@@ -151,7 +159,7 @@ async def ans(cq: CallbackQuery):
     _, lid, i, n = map(int, cq.data.split(":"))
     w, opts = quiz_question(lid, i)
     ok = 1 if opts[n] == w["ru"] else 0
-    record(cq.from_user.id, f"{lid}:{i}", ok)
+    await record(cq.from_user.id, f"{lid}:{i}", ok)
     l = lesson_by_id(lid)
     b = InlineKeyboardBuilder()
     if i + 1 < len(l["words"]):
@@ -169,11 +177,11 @@ async def ans(cq: CallbackQuery):
 
 @router.callback_query(F.data == "menu:progress")
 async def progress(cq: CallbackQuery):
-    rows = stats(cq.from_user.id)
+    rows = await stats(cq.from_user.id)
     total = sum(len(l["words"]) for l in LESSONS)
-    answers = sum(cr + wr for _, cr, wr in rows)
-    correct = sum(cr for _, cr, wr in rows)
-    learned = sum(1 for _, cr, wr in rows if cr >= 2 and cr > wr)
+    answers = sum(r["correct"] + r["wrong"] for r in rows)
+    correct = sum(r["correct"] for r in rows)
+    learned = sum(1 for r in rows if r["correct"] >= 2 and r["correct"] > r["wrong"])
     acc = f"{correct / answers:.0%}" if answers else "—"
     await cq.message.edit_text(
         f"📊 Прогресс\n\nОтветов: {answers}\nТочность: {acc}\n"
