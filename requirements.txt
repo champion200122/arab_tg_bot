@@ -2,4 +2,3 @@ aiogram>=3.7.0
 asyncpg
 fastapi
 uvicorn[standard]
-requirements.txt
