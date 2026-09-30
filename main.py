@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, HTTPException
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
 from handlers import router as bot_router
+from storage import init_db
 
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
