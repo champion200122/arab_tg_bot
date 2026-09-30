@@ -48,23 +48,24 @@ async def fallback(m: Message):
 
 @router.callback_query(F.data == "menu:main")
 async def menu_main(cq: CallbackQuery):
-    await cq.message.edit_text(START_TEXT, reply_markup=menu_kb())
     await cq.answer()
+    await cq.message.edit_text(START_TEXT, reply_markup=menu_kb())
 
 
 @router.callback_query(F.data == "menu:lessons")
 async def lessons_list(cq: CallbackQuery):
+    await cq.answer()
     b = InlineKeyboardBuilder()
     for l in LESSONS:
         b.button(text=l["title"], callback_data=f"lesson:{l['id']}")
     b.button(text="⬅️ Меню", callback_data="menu:main")
     b.adjust(1)
     await cq.message.edit_text("Выбери урок:", reply_markup=b.as_markup())
-    await cq.answer()
 
 
 @router.callback_query(F.data.startswith("lesson:"))
 async def lesson_view(cq: CallbackQuery):
+    await cq.answer()
     lid = int(cq.data.split(":")[1])
     l = lesson_by_id(lid)
     text = l["title"] + "\n\n" + "\n".join("• " + n for n in l["notes"])
@@ -72,7 +73,6 @@ async def lesson_view(cq: CallbackQuery):
         f"{w['ar']} — {w['tr']} — {w['ru']}" for w in l["words"]
     )
     await cq.message.edit_text(text, reply_markup=lesson_kb(lid))
-    await cq.answer()
 
 
 async def show_card(cq: CallbackQuery, lid: int, i: int):
@@ -90,102 +90,16 @@ async def show_card(cq: CallbackQuery, lid: int, i: int):
 
 @router.callback_query(F.data.startswith("cards:"))
 async def cards(cq: CallbackQuery):
+    await cq.answer()
     _, lid, i = map(int, cq.data.split(":"))
     await show_card(cq, lid, i)
-    await cq.answer()
 
 
 @router.callback_query(F.data.startswith("reveal:"))
 async def reveal(cq: CallbackQuery):
+    await cq.answer()
     _, lid, i = map(int, cq.data.split(":"))
     l = lesson_by_id(lid)
     w = l["words"][i]
     b = InlineKeyboardBuilder()
     b.button(text="✅ Знаю", callback_data=f"know:{lid}:{i}:1")
-    b.button(text="🔁 Учить", callback_data=f"know:{lid}:{i}:0")
-    if i + 1 < len(l["words"]):
-        b.button(text="➡️ Далее", callback_data=f"cards:{lid}:{i + 1}")
-    else:
-        b.button(text="➡️ Далее", callback_data=f"lesson:{lid}")
-    b.adjust(2, 1)
-    await cq.message.edit_text(
-        f"{w['ar']}\n{w['tr']}\n{w['ru']}", reply_markup=b.as_markup()
-    )
-    await cq.answer()
-
-
-@router.callback_query(F.data.startswith("know:"))
-async def know(cq: CallbackQuery):
-    _, lid, i, ok = map(int, cq.data.split(":"))
-    await record(cq.from_user.id, f"{lid}:{i}", ok)
-    l = lesson_by_id(lid)
-    if i + 1 < len(l["words"]):
-        await show_card(cq, lid, i + 1)
-    else:
-        await cq.message.edit_text(
-            "Карточки урока пройдены 🎉", reply_markup=lesson_kb(lid)
-        )
-    await cq.answer("Записал")
-
-
-def quiz_question(lid: int, i: int):
-    l = lesson_by_id(lid)
-    w = l["words"][i]
-    others = [x["ru"] for x in l["words"] if x["ru"] != w["ru"]]
-    rnd = random.Random(f"{lid}:{i}")  # детерминированно, без состояния
-    rnd.shuffle(others)
-    opts = [w["ru"]] + others[:3]
-    rnd.shuffle(opts)
-    return w, opts
-
-
-@router.callback_query(F.data.startswith("quiz:"))
-async def quiz(cq: CallbackQuery):
-    _, lid, i = map(int, cq.data.split(":"))
-    w, opts = quiz_question(lid, i)
-    b = InlineKeyboardBuilder()
-    for n, o in enumerate(opts):
-        b.button(text=o, callback_data=f"ans:{lid}:{i}:{n}")
-    b.button(text="⬅️ Выйти", callback_data="menu:main")
-    b.adjust(1)
-    await cq.message.edit_text(
-        f"Вопрос {i + 1}: как переводится\n{w['ar']} ?", reply_markup=b.as_markup()
-    )
-    await cq.answer()
-
-
-@router.callback_query(F.data.startswith("ans:"))
-async def ans(cq: CallbackQuery):
-    _, lid, i, n = map(int, cq.data.split(":"))
-    w, opts = quiz_question(lid, i)
-    ok = 1 if opts[n] == w["ru"] else 0
-    await record(cq.from_user.id, f"{lid}:{i}", ok)
-    l = lesson_by_id(lid)
-    b = InlineKeyboardBuilder()
-    if i + 1 < len(l["words"]):
-        b.button(text="➡️ Дальше", callback_data=f"quiz:{lid}:{i + 1}")
-    else:
-        b.button(text="🏁 Итоги", callback_data="menu:progress")
-    b.button(text="⬅️ Урок", callback_data=f"lesson:{lid}")
-    b.adjust(1)
-    mark = "✅ Верно!" if ok else "❌ Мимо."
-    await cq.message.edit_text(
-        f"{mark}\n{w['ar']} — {w['tr']} — {w['ru']}", reply_markup=b.as_markup()
-    )
-    await cq.answer()
-
-
-@router.callback_query(F.data == "menu:progress")
-async def progress(cq: CallbackQuery):
-    rows = await stats(cq.from_user.id)
-    total = sum(len(l["words"]) for l in LESSONS)
-    answers = sum(r["correct"] + r["wrong"] for r in rows)
-    correct = sum(r["correct"] for r in rows)
-    learned = sum(1 for r in rows if r["correct"] >= 2 and r["correct"] > r["wrong"])
-    acc = f"{correct / answers:.0%}" if answers else "—"
-    await cq.message.edit_text(
-        f"📊 Прогресс\n\nОтветов: {answers}\nТочность: {acc}\n"
-        f"Выучено слов: {learned} из {total}",
-        reply_markup=menu_kb(),
-    )
-    await cq.answer()
